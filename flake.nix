@@ -46,14 +46,14 @@
       version = self.shortRev or self.dirtyShortRev or "dev";
 
       # Exact Rust release. checks.toolchain-pins, added by issue #5, compares
-      # this value across six manifests:
+      # this value across the five manifests that carry a Rust pin:
       #   - flake.nix                          (this file)
       #   - mise.toml [tools].rust             (major.minor)
       #   - Cargo.toml rust-version            (major.minor)
       #   - .github/workflows/ci.yml           dtolnay/rust-toolchain pin
       #   - .github/workflows/integration.yml  dtolnay/rust-toolchain pin
-      #   - package.json                       (for the pnpm pin)
-      # The Node.js major is read from mise.toml and .github/workflows/ci.yml.
+      # The same check also reads package.json for the pnpm pin, and
+      # mise.toml and .github/workflows/ci.yml for the Node.js major.
       rustVersion = "1.95.0";
 
       # Exact pnpm release. It is read from package.json packageManager, so
