@@ -242,7 +242,7 @@ if require_single pnpm "Set up pnpm" "$CI_YML_LABEL" "$CI_PNPM"; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "ok: rust $RUST_VERSION, node major $(fields "$MISE_NODE" 1) (flake.nix $NODEJS_VERSION), pnpm $PACKAGE_PNPM agree across $MISE_TOML_LABEL, $CARGO_TOML_LABEL, $CI_YML_LABEL, $INTEGRATION_YML_LABEL, and $PACKAGE_JSON_LABEL"
+  echo "ok: rust $RUST_VERSION, node major $(fields "$MISE_NODE" 1) (flake.nix $NODEJS_VERSION), pnpm $PACKAGE_PNPM agree across flake.nix, $MISE_TOML_LABEL, $CARGO_TOML_LABEL, $CI_YML_LABEL, $INTEGRATION_YML_LABEL, and $PACKAGE_JSON_LABEL"
 fi
 
 exit "$fail"
