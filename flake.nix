@@ -27,7 +27,6 @@
   outputs =
     { self
     , nixpkgs
-    , nixpkgs-stable
     , flake-utils
     , rust-overlay
     , ...
@@ -52,7 +51,8 @@
       #   - mise.toml [tools].rust   (major.minor)
       #   - Cargo.toml rust-version  (major.minor)
       #   - .github/workflows/ci.yml dtolnay/rust-toolchain pin
-      #   - package.json             (for the pnpm and Node.js pins)
+      #   - package.json             (for the pnpm pin)
+      # The Node.js major is read from mise.toml and .github/workflows/ci.yml.
       # .github/workflows/integration.yml carries the same pin and is covered by
       # issue #11.
       rustVersion = "1.95.0";
