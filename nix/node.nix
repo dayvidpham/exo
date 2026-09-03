@@ -85,8 +85,8 @@ let
   # to every platform. A fetch log shows win32 and android packages arriving,
   # and those are outside the set below, so this setting is not what limits the
   # fetch today. It is here to state the requirement in the flake, so the store
-  # stays platform complete if the fetcher ever drops `--force`. Treat a change
-  # to this set as a reason to redo the fake hash workflow.
+  # stays platform complete if the fetcher ever drops `--force`. The rule for
+  # bumping the hash after a change here is at `pnpmDepsHash` below.
   supportedArchitectures = {
     os = [ "linux" "darwin" ];
     cpu = [ "x64" "arm64" ];
@@ -118,28 +118,38 @@ let
 
   # Output hash of the prefetched pnpm store.
   #
-  # Redo the fake hash workflow whenever `pnpm-lock.yaml` changes, whenever the
-  # pinned pnpm version changes, and whenever `supportedArchitectures` or
-  # `fetcherVersion` below changes: set this to lib.fakeHash, run
-  # `nix build .#node-modules`, and copy the reported `got:` hash.
+  # Redo the fake hash workflow whenever `pnpm-lock.yaml` changes which packages
+  # get installed, whenever the pinned pnpm version changes, and whenever
+  # `supportedArchitectures` above or `fetcherVersion` below changes: set this
+  # to lib.fakeHash, run `nix build .#node-modules`, and copy the reported
+  # `got:` hash.
   #
-  # A stale hash shows up in one of two ways, and which one depends on the
-  # store, not on the size of the lockfile change.
+  # What this hash catches, and what it does not. Measured on x86_64-linux at
+  # this revision, on scratch copies of the tree.
   #
-  #   Cold store, or `nix build .#node-modules.pnpmDeps --rebuild`. The fetch
-  #   really runs, so Nix compares its result against the value below and stops
-  #   with `hash mismatch in fixed-output derivation`, printing `specified:` and
-  #   `got:`. Copy the `got:` value here.
+  #   A change to the resolved dependency set, a bumped version for example, is
+  #   caught either way. On a warm store the fetch output path is reused,
+  #   because a fixed-output derivation is addressed by its declared hash and
+  #   its name and never by the lockfile, so no fetch runs and the offline
+  #   install fails with `ERR_PNPM_NO_OFFLINE_TARBALL`, naming the package. When
+  #   the fetch really runs, on a cold store or under
+  #   `nix build .#node-modules.pnpmDeps --rebuild`, Nix compares the result
+  #   against the value below and stops with `hash mismatch in fixed-output
+  #   derivation`, printing `specified:` and `got:`. Copy the `got:` value here.
   #
-  #   Warm store. The output path of a fixed-output derivation is computed from
-  #   the declared hash and the derivation name only. It does not depend on
-  #   `pnpm-lock.yaml`. So an edited lockfile addresses the same path, Nix finds
-  #   it already built, and no fetch happens. The failure then lands one step
-  #   later, in the offline install inside packages.node-modules, as
-  #   `ERR_PNPM_NO_OFFLINE_TARBALL`: the store does not hold the new tarball.
-  #   The nixpkgs config hook prints the fake hash workflow next to that error.
+  #   A change to an `integrity:` value alone is not caught on a warm store. An
+  #   `integrity:` value lives only in the `packages:` section, because the
+  #   `snapshots:` section carries none, so that is the only place such an edit
+  #   can be made. The build then succeeds with exit 0 and no warning: the
+  #   offline install resolves a package by name and version and takes its
+  #   tarball from the prefetched store without rechecking it. Measured with a
+  #   transitive package, `@ai-sdk/provider@1.1.3`, and with a direct one,
+  #   `qrcode-terminal@0.12.0`. When the fetch really runs the same edit stops
+  #   it earlier, at `ERR_PNPM_TARBALL_INTEGRITY`, so the hash comparison is
+  #   never reached.
   #
-  # Both mean the same thing. The hash below no longer describes the lockfile.
+  # So this hash guards the set of packages that get installed. It is not a
+  # tamper check on the bytes of `pnpm-lock.yaml`.
   #
   # Source of the value below: the fake hash workflow, on x86_64-linux.
   pnpmDepsHash = "sha256-xZdOhU/tkeZKyBnkDI/9QbIqTVzvQYKX0Y1wr075Ibs=";
