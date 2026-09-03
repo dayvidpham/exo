@@ -4,13 +4,13 @@
 # Compares the Rust, Node.js, and pnpm pins across five manifests: flake.nix,
 # mise.toml, Cargo.toml, .github/workflows/ci.yml, and package.json.
 #
-# Nix parses flake.nix, mise.toml, Cargo.toml, and the pnpm pin before this
-# script runs, with `rustVersion` and `pnpm.version` (both passed through
-# moduleArgs) and builtins.fromTOML. Their already-extracted values arrive
-# below as environment variables. This script parses
-# .github/workflows/ci.yml itself, because Nix has no YAML parser in the
-# standard library. The parse is anchored to the exact step names
-# "Set up Rust", "Set up Node.js", and "Set up pnpm".
+# Nix parses flake.nix, mise.toml, Cargo.toml, and the pnpm and Node.js pins
+# before this script runs, with `rustVersion`, `nodejs.version`, and
+# `pnpm.version` (all passed through moduleArgs) and builtins.fromTOML.
+# Their already-extracted values arrive below as environment variables. This
+# script parses .github/workflows/ci.yml itself, because Nix has no YAML
+# parser in the standard library. The parse is anchored to the exact step
+# names "Set up Rust", "Set up Node.js", and "Set up pnpm".
 #
 # Comparison rules:
 #   rust: the number of dot-separated fields in the manifest's own value
@@ -27,8 +27,15 @@
 #   node: mise.toml, through MISE_NODE.
 #   pnpm: package.json, through PACKAGE_PNPM.
 #
+# ci.yml can name a step twice (for example a merge conflict left both
+# halves in place). A step named twice with disagreeing values is itself a
+# drift: it is reported by name and never allowed to reach a normal
+# comparison as a multi-line value, because a multi-line value would make a
+# tool such as `cut` fail outright instead of reporting a drift.
+#
 # Required environment variables:
 #   RUST_VERSION       flake.nix rust-overlay pin, for example 1.95.0
+#   NODEJS_VERSION     flake.nix nodejs pin, for example 22.22.3
 #   MISE_TOML_LABEL    label for mise.toml, named in failure messages
 #   MISE_RUST          mise.toml [tools].rust, for example 1.95
 #   MISE_NODE          mise.toml [tools].nodejs, for example 22.15.0
@@ -47,6 +54,7 @@
 set -euo pipefail
 
 : "${RUST_VERSION:?RUST_VERSION is required}"
+: "${NODEJS_VERSION:?NODEJS_VERSION is required}"
 : "${MISE_TOML_LABEL:?MISE_TOML_LABEL is required}"
 : "${MISE_RUST:?MISE_RUST is required}"
 : "${MISE_NODE:?MISE_NODE is required}"
@@ -61,12 +69,14 @@ set -euo pipefail
 fail=0
 
 field_count() {
-  # Number of dot-separated fields in $1, for example 2 for "1.95".
+  # Number of dot-separated fields in $1, for example 2 for "1.95". $1 must
+  # be a single value: a multi-line value must be rejected by
+  # require_single before it reaches here.
   printf '%s' "$1" | awk -F. '{print NF}'
 }
 
 fields() {
-  # The first $2 dot-separated fields of $1.
+  # The first $2 dot-separated fields of $1. $1 must be a single value.
   printf '%s' "$1" | cut -d. -f1-"$2"
 }
 
@@ -81,12 +91,33 @@ compare_rust() {
   # The rule comes from the value's own precision: a two-field value such
   # as "1.95" compares major.minor, a three-field value such as "1.95.0"
   # compares major.minor.patch. Never picked by which file it came from.
+  # $2 must be a single value; callers reading it out of ci.yml must pass
+  # it through require_single first.
   local label=$1 value=$2 n expected
   n=$(field_count "$value")
   expected=$(fields "$RUST_VERSION" "$n")
   if [ "$value" != "$expected" ]; then
     report rust "flake.nix" "$RUST_VERSION" "$label" "$value"
   fi
+}
+
+require_single() {
+  # require_single <tool> <step-name> <label> <values>
+  # <values> may hold more than one unique line when a step name appears
+  # twice in ci.yml with disagreeing values (step_block below prints every
+  # occurrence, on purpose). That is itself a drift, reported here by name,
+  # and this function returns 1 so the caller skips its normal comparison:
+  # a multi-line value must never reach compare_rust or the other
+  # comparisons, only single values may.
+  local tool=$1 step=$2 label=$3 values=$4 count csv
+  count=$(printf '%s\n' "$values" | wc -l)
+  if [ "$count" -gt 1 ]; then
+    csv=$(printf '%s\n' "$values" | paste -sd, -)
+    echo "drift ($tool): $label names more than one value for the '$step' step: $csv"
+    fail=1
+    return 1
+  fi
+  return 0
 }
 
 step_block() {
@@ -97,8 +128,8 @@ step_block() {
   # expression, so a name with a dot (such as "Set up Node.js") cannot
   # behave like a wildcard. Every matching occurrence is printed: a step
   # name that appears twice is not silently reduced to the first one, so a
-  # second, disagreeing value still reaches the comparison below and is
-  # reported as a drift.
+  # second, disagreeing value still reaches extract_step_field and
+  # require_single below, and is reported as a drift rather than ignored.
   awk -v step="- name: $2" '
     index($0, step) { capture = 1; next }
     index($0, "- name:") { capture = 0; next }
@@ -108,18 +139,20 @@ step_block() {
 
 extract_step_field() {
   # extract_step_field <file> <step-name> <sed-extract-program> <description>
-  # Runs the named step's block (every occurrence) through a `sed -nE`
-  # extraction program that prints one line per match, and requires at
-  # least one non-empty result. A step with no match, or a value with the
-  # wrong shape, prints nothing and is treated as a parse failure, not as
-  # an empty pin that would silently pass every comparison.
-  local file=$1 step=$2 sed_program=$3 description=$4 value
-  value=$(step_block "$file" "$step" | sed -nE "$sed_program")
-  if [ -z "$value" ]; then
+  # Prints the unique, non-empty matches found across every occurrence of
+  # the named step (one per line). Requires at least one match; a step with
+  # no match, or a value with the wrong shape, prints nothing and is a
+  # parse failure (exit 2), not an empty pin that would silently pass every
+  # comparison. More than one unique match is not an error here: the
+  # caller runs the result through require_single, because only the caller
+  # knows which tool and comparison are involved.
+  local file=$1 step=$2 sed_program=$3 description=$4 values
+  values=$(step_block "$file" "$step" | sed -nE "$sed_program" | sort -u)
+  if [ -z "$values" ]; then
     echo "error: could not find $description in the '$step' step of $file" >&2
     exit 2
   fi
-  printf '%s' "$value"
+  printf '%s\n' "$values"
 }
 
 # ---- Parse the ci.yml file. ----
@@ -128,10 +161,12 @@ extract_step_field() {
 # step does not have the expected shape (for example a
 # "dtolnay/rust-toolchain@stable" with no trailing pin comment): the sed
 # program only ever emits its captured group, on a match, with `-n` and a
-# trailing `p`.
+# trailing `p`. The rust program is anchored to the "uses:" line itself, so
+# a later comment elsewhere in the same step (for example "# MSRV 1.90" on
+# an unrelated line) is never read as the pin.
 
 CI_RUST=$(extract_step_field "$CI_YML_PATH" "Set up Rust" \
-  's/^.*#[[:space:]]*([0-9]+(\.[0-9]+)*)[[:space:]]*$/\1/p' \
+  's/^[[:space:]]*uses:.*#[[:space:]]*([0-9]+(\.[0-9]+)*)[[:space:]]*$/\1/p' \
   "the dtolnay/rust-toolchain pin comment")
 
 CI_NODE=$(extract_step_field "$CI_YML_PATH" "Set up Node.js" \
@@ -146,12 +181,21 @@ CI_PNPM=$(extract_step_field "$CI_YML_PATH" "Set up pnpm" \
 
 compare_rust "$MISE_TOML_LABEL" "$MISE_RUST"
 compare_rust "$CARGO_TOML_LABEL" "$CARGO_RUST"
-compare_rust "$CI_YML_LABEL" "$CI_RUST"
+if require_single rust "Set up Rust" "$CI_YML_LABEL" "$CI_RUST"; then
+  compare_rust "$CI_YML_LABEL" "$CI_RUST"
+fi
 
-# ---- Node.js: source of truth is mise.toml (MISE_NODE), major only. ----
+# ---- Node.js: source of truth is mise.toml (MISE_NODE), major only. The
+# ---- flake's own Node.js (NODEJS_VERSION) must agree with it too. ----
 
-if [ "$(fields "$CI_NODE" 1)" != "$(fields "$MISE_NODE" 1)" ]; then
-  report node "$MISE_TOML_LABEL" "$MISE_NODE" "$CI_YML_LABEL" "$CI_NODE"
+if [ "$(fields "$NODEJS_VERSION" 1)" != "$(fields "$MISE_NODE" 1)" ]; then
+  report node "flake.nix" "$NODEJS_VERSION" "$MISE_TOML_LABEL" "$MISE_NODE"
+fi
+
+if require_single node "Set up Node.js" "$CI_YML_LABEL" "$CI_NODE"; then
+  if [ "$(fields "$CI_NODE" 1)" != "$(fields "$MISE_NODE" 1)" ]; then
+    report node "$MISE_TOML_LABEL" "$MISE_NODE" "$CI_YML_LABEL" "$CI_NODE"
+  fi
 fi
 
 # ---- pnpm: source of truth is package.json (PACKAGE_PNPM), exact. ----
@@ -160,12 +204,14 @@ if [ "$MISE_PNPM" != "$PACKAGE_PNPM" ]; then
   report pnpm "$PACKAGE_JSON_LABEL" "$PACKAGE_PNPM" "$MISE_TOML_LABEL" "$MISE_PNPM"
 fi
 
-if [ "$CI_PNPM" != "$PACKAGE_PNPM" ]; then
-  report pnpm "$PACKAGE_JSON_LABEL" "$PACKAGE_PNPM" "$CI_YML_LABEL" "$CI_PNPM"
+if require_single pnpm "Set up pnpm" "$CI_YML_LABEL" "$CI_PNPM"; then
+  if [ "$CI_PNPM" != "$PACKAGE_PNPM" ]; then
+    report pnpm "$PACKAGE_JSON_LABEL" "$PACKAGE_PNPM" "$CI_YML_LABEL" "$CI_PNPM"
+  fi
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "ok: rust $RUST_VERSION, node major $(fields "$MISE_NODE" 1), pnpm $PACKAGE_PNPM agree across $MISE_TOML_LABEL, $CARGO_TOML_LABEL, $CI_YML_LABEL, and $PACKAGE_JSON_LABEL"
+  echo "ok: rust $RUST_VERSION, node major $(fields "$MISE_NODE" 1) (flake.nix $NODEJS_VERSION), pnpm $PACKAGE_PNPM agree across $MISE_TOML_LABEL, $CARGO_TOML_LABEL, $CI_YML_LABEL, and $PACKAGE_JSON_LABEL"
 fi
 
 exit "$fail"

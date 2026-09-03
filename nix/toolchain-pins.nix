@@ -19,8 +19,10 @@
 # truth the script compares mise.toml, Cargo.toml, and ci.yml against. `pnpm`
 # also arrives through moduleArgs: `pnpm.version` is the same value flake.nix
 # already read out of package.json to build that derivation, so the real
-# check does not read package.json a second time.
-{ pkgs, lib, self, rustVersion, pnpm, ... }:
+# check does not read package.json a second time. `nodejs.version` is the
+# flake's own Node.js pin, compared against mise.toml so the dev shell's
+# Node.js major cannot drift from the manifest silently.
+{ pkgs, lib, self, rustVersion, nodejs, pnpm, ... }:
 
 let
   script = ./toolchain-pins.sh;
@@ -36,13 +38,14 @@ let
   # case supplies its own fixed rust pin (see fixtureCases below) so the
   # golden cases stay hermetic, independent of the live flake.nix pin.
   mkEnv =
-    { miseToml, cargoToml, ciYml, ciYmlLabel, expectedRust, pnpmVersion }:
+    { miseToml, cargoToml, ciYml, ciYmlLabel, expectedRust, expectedNode, pnpmVersion }:
     let
       mise = builtins.fromTOML (builtins.readFile miseToml);
       cargo = builtins.fromTOML (builtins.readFile cargoToml);
     in
     {
       RUST_VERSION = expectedRust;
+      NODEJS_VERSION = expectedNode;
       MISE_TOML_LABEL = "mise.toml";
       MISE_RUST = mise.tools.rust;
       MISE_NODE = mise.tools.nodejs;
@@ -68,6 +71,7 @@ let
           ciYml = "${self}/.github/workflows/ci.yml";
           ciYmlLabel = ".github/workflows/ci.yml";
           expectedRust = rustVersion;
+          expectedNode = nodejs.version;
           pnpmVersion = pnpm.version;
         })
         // {
@@ -83,24 +87,37 @@ let
   # truth for the expected outcome: no per-case "expected" file, and no
   # directory scan discovers new cases.
   #
-  # `rustVersion` is fixed per case, not the live flake.nix pin, so a case
-  # stays hermetic even if the flake's own rust pin changes later.
-  # `driftTool` and `driftFile` name the tool and the manifest a failing
-  # case's drift lives in, so the fixture check can assert the failure
-  # message names both, not just any file.
+  # `rustVersion` and `nodeVersion` are fixed per case, not the live
+  # flake.nix pins, so a case stays hermetic even if the flake's own pins
+  # change later. `driftTool` and `driftFile` name the tool and the
+  # manifest a failing case's drift lives in, so the fixture check can
+  # assert the failure message names both, not just any file.
   fixtureCases = [
-    { name = "agree"; expectPass = true; rustVersion = "1.95.0"; }
+    { name = "agree"; expectPass = true; rustVersion = "1.95.0"; nodeVersion = "22.22.3"; }
     {
       name = "rust-drift";
       expectPass = false;
       rustVersion = "1.95.0";
+      nodeVersion = "22.22.3";
       driftTool = "rust";
       driftFile = "ci.yml";
+    }
+    {
+      # mise.toml states a major.minor rust value (no patch) that disagrees
+      # with the case's rustVersion, driving the major.minor branch of
+      # compare_rust, not the major.minor.patch branch rust-drift exercises.
+      name = "rust-drift-nopatch";
+      expectPass = false;
+      rustVersion = "1.95.0";
+      nodeVersion = "22.22.3";
+      driftTool = "rust";
+      driftFile = "mise.toml";
     }
     {
       name = "node-drift";
       expectPass = false;
       rustVersion = "1.95.0";
+      nodeVersion = "22.22.3";
       driftTool = "node";
       driftFile = "ci.yml";
     }
@@ -108,6 +125,7 @@ let
       name = "pnpm-drift";
       expectPass = false;
       rustVersion = "1.95.0";
+      nodeVersion = "22.22.3";
       driftTool = "pnpm";
       driftFile = "mise.toml";
     }
@@ -132,6 +150,7 @@ let
         ciYml = dir + "/ci.yml";
         ciYmlLabel = "ci.yml";
         expectedRust = case.rustVersion;
+        expectedNode = case.nodeVersion;
         inherit pnpmVersion;
       };
       expectPassStr = if case.expectPass then "pass" else "fail";
@@ -165,7 +184,7 @@ let
         fi
 
         if [ "$expectPassStr" = fail ] && [ -n "$driftTool" ] && [ -n "$driftFile" ] \
-          && ! grep -E "drift \($driftTool\).*$driftFile" output.log > /dev/null; then
+          && ! grep -E "drift \($driftTool\)" output.log | grep -F "$driftFile" > /dev/null; then
           echo "case $caseName: the failure message did not name $driftTool drift in $driftFile" >&2
           exit 1
         fi
