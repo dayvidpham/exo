@@ -92,9 +92,15 @@ compare_rust() {
   # as "1.95" compares major.minor, a three-field value such as "1.95.0"
   # compares major.minor.patch. Never picked by which file it came from.
   # $2 must be a single value; callers reading it out of ci.yml must pass
-  # it through require_single first.
+  # it through require_single first. A value with fewer than two fields
+  # (for example a bare "1") cannot state a rust pin: that is a parse
+  # failure, not a value that would compare against major only.
   local label=$1 value=$2 n expected
   n=$(field_count "$value")
+  if [ "$n" -lt 2 ]; then
+    echo "error: $label states a rust pin with fewer than two version fields: $value" >&2
+    exit 2
+  fi
   expected=$(fields "$RUST_VERSION" "$n")
   if [ "$value" != "$expected" ]; then
     report rust "flake.nix" "$RUST_VERSION" "$label" "$value"
@@ -124,15 +130,23 @@ step_block() {
   # step_block <file> <step-name>
   # Print the lines of every occurrence of the named GitHub Actions step,
   # each occurrence ending at the next "- name:" line or the end of the
-  # file. The step name is matched as a literal substring, not a regular
-  # expression, so a name with a dot (such as "Set up Node.js") cannot
-  # behave like a wildcard. Every matching occurrence is printed: a step
-  # name that appears twice is not silently reduced to the first one, so a
+  # file. A candidate line is trimmed of leading and trailing whitespace
+  # and compared for exact equality with "- name: <step-name>": a longer
+  # step name that merely starts with the target, such as
+  # "Set up Rust nightly for miri" against a target of "Set up Rust", must
+  # not be folded into it. Any trimmed line that starts with "- name:" ends
+  # the current block, matching step or not, so a step that never matches
+  # is simply skipped. Every matching occurrence is printed: a step name
+  # that appears twice is not silently reduced to the first one, so a
   # second, disagreeing value still reaches extract_step_field and
   # require_single below, and is reported as a drift rather than ignored.
   awk -v step="- name: $2" '
-    index($0, step) { capture = 1; next }
-    index($0, "- name:") { capture = 0; next }
+    {
+      line = $0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+    }
+    line == step { capture = 1; next }
+    substr(line, 1, 7) == "- name:" { capture = 0; next }
     capture { print }
   ' "$1"
 }

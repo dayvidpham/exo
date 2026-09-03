@@ -33,10 +33,11 @@ let
   # to parse (builtins.fromTOML), and builds the environment
   # nix/toolchain-pins.sh runs with. `ciYml` is passed straight through as a
   # path: the script parses .github/workflows/ci.yml itself, because Nix has
-  # no YAML parser in the standard library. `ciYmlLabel` and `expectedRust`
-  # are parameters, not values closed over from the outer scope: a fixture
-  # case supplies its own fixed rust pin (see fixtureCases below) so the
-  # golden cases stay hermetic, independent of the live flake.nix pin.
+  # no YAML parser in the standard library. `ciYmlLabel`, `expectedRust`, and
+  # `expectedNode` are parameters, not values closed over from the outer
+  # scope: a fixture case supplies its own fixed rust and Node.js pins (see
+  # fixtureCases below) so the golden cases stay hermetic, independent of
+  # the live flake.nix and nodejs.version values.
   mkEnv =
     { miseToml, cargoToml, ciYml, ciYmlLabel, expectedRust, expectedNode, pnpmVersion }:
     let
