@@ -119,7 +119,8 @@ let
     ${rustTargetEnvVar} = "-C target-feature=+crt-static";
 
     # A fully static link needs the static glibc archives, and the order of
-    # these two entries matters.
+    # these two entries matters. This is the one full statement of the rule;
+    # the packages list of devShells.firecracker below points back here.
     #
     # Every entry here becomes a `-L` in NIX_LDFLAGS, in list order, and the
     # linker takes the first match. glibc.static holds only archives, among
@@ -187,19 +188,10 @@ in
     ++ (with pkgs; [
       # Static glibc development files, for the
       # -C target-feature=+crt-static link in
-      # support/firecracker/build-guest.sh. The order of these two entries
-      # matters.
-      #
-      # Every entry here becomes a `-L` in NIX_LDFLAGS, in list order, and the
-      # linker takes the first match. glibc.static holds only archives, among
-      # them libm.a and libpthread.a, so on its own it makes the linker resolve
-      # -lm and -lpthread to archives even for a dynamic link. A program that
-      # mixes archive libm with shared libc segfaults on startup, which in this
-      # shell showed up as every cargo build script dying with SIGSEGV.
-      # Listing the glibc runtime output first puts the shared objects earlier
-      # in the search path, so a dynamic link resolves to libm.so and a static
-      # link still falls through to libm.a. Keep glibc immediately before
-      # glibc.static.
+      # support/firecracker/build-guest.sh. Keep glibc immediately before
+      # glibc.static: swapping them makes every dynamic link in this shell
+      # produce a program that segfaults on startup. The buildInputs comment on
+      # exo-firecracker-guest above explains why.
       glibc
       glibc.static
 
