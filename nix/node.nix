@@ -10,7 +10,6 @@
 { pkgs
 , lib
 , pname
-, version
 , nodejs
 , pnpm
 , ...
@@ -21,15 +20,21 @@ let
   # Sources
   # ------------------------------------------------------------------
 
-  # The only files pnpm reads to resolve the dependency graph. Keeping this
-  # source minimal means a TypeScript edit never refetches the dependency
-  # store. The repository has no pnpm workspace file and no `.npmrc`, so these
-  # two files are the whole input.
+  # The files pnpm reads to resolve the dependency graph. Keeping this source
+  # minimal means a TypeScript edit never refetches the dependency store.
+  #
+  # `.npmrc` and `pnpm-workspace.yaml` are both absent from the repository
+  # today. They are named here anyway, through `maybeMissing`, because either
+  # one changes how pnpm resolves the graph. Without them the fetch would
+  # silently ignore a registry setting or a workspace setting on the day
+  # somebody adds one.
   pnpmSrc = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
       ../package.json
       ../pnpm-lock.yaml
+      (lib.fileset.maybeMissing ../.npmrc)
+      (lib.fileset.maybeMissing ../pnpm-workspace.yaml)
     ];
   };
 
@@ -37,6 +42,11 @@ let
   # workspace and the flake itself. `oxlint`, `oxfmt`, `tsgo`, and `vitest` all
   # walk the tree from the root, so the list below is a removal list, not an
   # inclusion list: a new TypeScript directory is covered without an edit here.
+  #
+  # `node_modules`, `target`, and `tsconfig.tsbuildinfo` are build outputs, and
+  # `.gitignore` lists all three. A flake built from a git tree drops them on
+  # its own, but `nix build path:<dir>` has no git to ask, so it would copy
+  # them. They are subtracted here so both ways of building agree.
   checkSrc = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.difference ../. (lib.fileset.unions [
@@ -48,6 +58,9 @@ let
       ../flake.nix
       ../fuzz
       ../nix
+      (lib.fileset.maybeMissing ../node_modules)
+      (lib.fileset.maybeMissing ../target)
+      (lib.fileset.maybeMissing ../tsconfig.tsbuildinfo)
     ]);
   };
 
@@ -62,8 +75,11 @@ let
   # otherwise one declared output hash cannot serve them all. So the fetcher
   # asks pnpm for the optional dependencies of every supported platform.
   #
-  # The values are npm platform and CPU names, the ones package manifests use
-  # in their `os` and `cpu` fields. They are not Nix system names.
+  # The values are npm platform, CPU, and libc names, the ones package
+  # manifests use in their `os`, `cpu`, and `libc` fields. They are not Nix
+  # system names. `musl` is in the list because the graph carries musl builds,
+  # among them `@img/sharp-linuxmusl-x64` and the `linux-x64-musl` bindings of
+  # oxlint, oxfmt, and rollup.
   #
   # The nixpkgs fetcher also passes `--force`, which on its own widens the fetch
   # to every platform. A fetch log shows win32 and android packages arriving,
@@ -74,26 +90,57 @@ let
   supportedArchitectures = {
     os = [ "linux" "darwin" ];
     cpu = [ "x64" "arm64" ];
+    libc = [ "glibc" "musl" ];
   };
 
   # pnpm 10 rejects `pnpm config set supportedArchitectures.os`, with
   # ERR_PNPM_CONFIG_SET_DEEP_KEY: a nested key cannot go into an `.npmrc`. pnpm
   # 10 reads nested settings from `pnpm-workspace.yaml` instead, so the fetcher
-  # writes that file into its own build directory. The repository has no such
-  # file, and this one never leaves the build sandbox.
+  # puts the block below into that file inside its own build directory. The
+  # file never leaves the build sandbox.
   pnpmSettingsFile = (pkgs.formats.yaml { }).generate "pnpm-workspace.yaml" {
     inherit supportedArchitectures;
   };
 
+  # The repository has no `pnpm-workspace.yaml` today. If one appears it carries
+  # real settings, so merge into it rather than overwrite it. `yq` is a jq for
+  # YAML: `--slurp` reads both documents into one array, `.[0] * .[1]` merges
+  # them with the generated block winning, and `--yaml-output` writes YAML back.
   prePnpmInstall = ''
-    cp ${pnpmSettingsFile} pnpm-workspace.yaml
+    if [ -f pnpm-workspace.yaml ]; then
+      yq --slurp --yaml-output '.[0] * .[1]' \
+        pnpm-workspace.yaml ${pnpmSettingsFile} > pnpm-workspace.merged.yaml
+      mv pnpm-workspace.merged.yaml pnpm-workspace.yaml
+    else
+      cp ${pnpmSettingsFile} pnpm-workspace.yaml
+    fi
   '';
 
   # Output hash of the prefetched pnpm store.
-  # Bump this hash whenever `pnpm-lock.yaml` changes, whenever the pinned pnpm
-  # version changes, and whenever `supportedArchitectures` or `fetcherVersion`
-  # above changes: set it to lib.fakeHash, run `nix build .#node-modules`, and
-  # copy the reported `got:` hash.
+  #
+  # Redo the fake hash workflow whenever `pnpm-lock.yaml` changes, whenever the
+  # pinned pnpm version changes, and whenever `supportedArchitectures` or
+  # `fetcherVersion` below changes: set this to lib.fakeHash, run
+  # `nix build .#node-modules`, and copy the reported `got:` hash.
+  #
+  # A stale hash shows up in one of two ways, and which one depends on the
+  # store, not on the size of the lockfile change.
+  #
+  #   Cold store, or `nix build .#node-modules.pnpmDeps --rebuild`. The fetch
+  #   really runs, so Nix compares its result against the value below and stops
+  #   with `hash mismatch in fixed-output derivation`, printing `specified:` and
+  #   `got:`. Copy the `got:` value here.
+  #
+  #   Warm store. The output path of a fixed-output derivation is computed from
+  #   the declared hash and the derivation name only. It does not depend on
+  #   `pnpm-lock.yaml`. So an edited lockfile addresses the same path, Nix finds
+  #   it already built, and no fetch happens. The failure then lands one step
+  #   later, in the offline install inside packages.node-modules, as
+  #   `ERR_PNPM_NO_OFFLINE_TARBALL`: the store does not hold the new tarball.
+  #   The nixpkgs config hook prints the fake hash workflow next to that error.
+  #
+  # Both mean the same thing. The hash below no longer describes the lockfile.
+  #
   # Source of the value below: the fake hash workflow, on x86_64-linux.
   pnpmDepsHash = "sha256-xZdOhU/tkeZKyBnkDI/9QbIqTVzvQYKX0Y1wr075Ibs=";
 
@@ -105,13 +152,21 @@ let
   # pnpm, not the pnpm this flake pins to the `packageManager` version. Calling
   # the top-level fetcher with an explicit `pnpm` argument keeps the pin.
   #
+  # No `version` is passed. The fetch depends on the lockfile, not on the git
+  # revision, and a version in the name would give every commit a new output
+  # path and refetch the whole graph.
+  #
   # `fetcherVersion = 4` is the newest value the locked nixpkgs supports. Its
   # fetcher accepts 3 and 4 and rejects everything else.
+  #
+  # `yq` is already in the fetcher's own build inputs. It is named again here so
+  # that prePnpmInstall above does not depend on that detail.
   pnpmDeps = pkgs.fetchPnpmDeps {
-    inherit pname version prePnpmInstall pnpm;
+    inherit pname prePnpmInstall pnpm;
     src = pnpmSrc;
     fetcherVersion = 4;
     hash = pnpmDepsHash;
+    nativeBuildInputs = [ pkgs.yq ];
   };
 
   # ------------------------------------------------------------------
@@ -131,9 +186,12 @@ let
   # The hook is taken from the top level for the same reason as the fetcher:
   # `pnpm.configHook` is deprecated and it propagates the nixpkgs pnpm, which
   # would shadow the pinned pnpm on PATH.
+  #
+  # Both derivations in this file use a plain `name` with no version, for the
+  # reason given at the fetcher above. `mkDerivation` wants either `name` on its
+  # own or `pname` together with `version`, and there is no version to give.
   node-modules = pkgs.stdenvNoCC.mkDerivation {
-    pname = "${pname}-node-modules";
-    inherit version;
+    name = "${pname}-node-modules";
 
     src = pnpmSrc;
 
@@ -169,10 +227,11 @@ let
   # checks.typescript
   # ------------------------------------------------------------------
 
-  # `pnpm check` is `pnpm lint && pnpm typecheck && pnpm test`. The three run
-  # one after another below, so a failure names the step that failed.
+  # The two package.json scripts run as they are written there. `check` is
+  # `pnpm lint && pnpm typecheck && pnpm test`. Running the script, not the
+  # three steps, means a change to `check` is picked up here without an edit.
   typescript = pkgs.stdenvNoCC.mkDerivation {
-    name = "${pname}-typescript-check-${version}";
+    name = "${pname}-typescript-check";
 
     src = checkSrc;
 
@@ -208,14 +267,8 @@ let
     buildPhase = ''
       runHook preBuild
 
-      echo "==> pnpm lint"
-      pnpm run lint
-
-      echo "==> pnpm typecheck"
-      pnpm run typecheck
-
-      echo "==> pnpm test"
-      pnpm run test
+      echo "==> pnpm check"
+      pnpm run check
 
       echo "==> pnpm format:check"
       pnpm run format:check
