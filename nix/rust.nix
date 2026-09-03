@@ -10,9 +10,11 @@
 #   pkgs lib self system pname version
 #   rustVersion rustToolchain rustPlatform nodejs pnpm
 #
-# Use `rustPlatform.buildRustPackage` with `cargoLock.lockFile = ../Cargo.lock`.
+# Suggested approach, not part of the contract: use
+# `rustPlatform.buildRustPackage` with `cargoLock.lockFile = ../Cargo.lock`.
 # Cargo.lock has three git sources, so `cargoLock.outputHashes` needs one entry
-# for each of them.
+# for each of them. A different builder is fine as long as the attribute names
+# above stay the same.
 _moduleArgs:
 
 { }

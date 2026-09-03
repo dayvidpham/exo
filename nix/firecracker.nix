@@ -11,8 +11,9 @@
 #   pkgs lib self system pname version
 #   rustVersion rustToolchain rustPlatform nodejs pnpm
 #
-# Gate on `lib.hasSuffix "-linux" system`. Fetch the release archive with
-# `fetchurl` and the SHA-256 values in support/firecracker/README.md.
+# Suggested approach, not part of the contract: gate on
+# `lib.hasSuffix "-linux" system`, and fetch the release archive with `fetchurl`
+# and the SHA-256 values already recorded in support/firecracker/README.md.
 _moduleArgs:
 
 { }

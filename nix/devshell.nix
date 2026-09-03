@@ -9,7 +9,7 @@
 # The shell hook never runs `pnpm install` or `cargo build`. The contributor
 # runs those by hand. `pnpm install` installs the git hooks through
 # scripts/setup-hooks.mjs, so it must stay an explicit action.
-{ pkgs, lib, pname, rustToolchain, nodejs, pnpm, ... }:
+{ pkgs, pname, rustToolchain, nodejs, pnpm, ... }:
 
 {
   devShells.default = pkgs.mkShell {
@@ -46,16 +46,17 @@
     ]);
 
     shellHook = ''
-      echo "${pname} dev shell: rustc $(rustc --version | cut -d' ' -f2), node $(node --version), pnpm $(pnpm --version)"
-
       # Put the cargo debug output on PATH. This mirrors `_.path` in mise.toml,
       # so `exo` and `exo-scheduler-runner` resolve the same way under Nix and
       # under mise.
       export PATH="$PWD/target/debug:$PATH"
 
-      # The pnpm on PATH already equals `packageManager` in package.json. This
-      # stops pnpm from ever downloading another pnpm.
+      # Stop pnpm from ever downloading another pnpm. See the pnpm pin comment
+      # in flake.nix for why. Exported before the version line below, so the
+      # first `pnpm --version` already runs with it set.
       export npm_config_manage_package_manager_versions=false
+
+      echo "${pname} dev shell: rustc $(rustc --version | cut -d' ' -f2), node $(node --version), pnpm $(pnpm --version)"
 
       [ -f .envrc.local ] && source .envrc.local || true
     '';

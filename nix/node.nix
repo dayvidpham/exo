@@ -10,9 +10,12 @@
 #   pkgs lib self system pname version
 #   rustVersion rustToolchain rustPlatform nodejs pnpm
 #
-# Use `pnpm.fetchDeps` for the fixed-output derivation and `pnpmConfigHook` to
-# install it. The fetcher must run with `--ignore-scripts`, so it never runs
-# the `prepare` script and never touches git config.
+# The fetcher must run with `--ignore-scripts`. That is part of the contract:
+# it stops the `prepare` script from running, so the build never touches git
+# config.
+#
+# Suggested approach, not part of the contract: use `pnpm.fetchDeps` for the
+# fixed-output derivation and `pnpmConfigHook` to install it.
 _moduleArgs:
 
 { }

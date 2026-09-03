@@ -10,8 +10,11 @@
 #   pkgs lib self system pname version
 #   rustVersion rustToolchain rustPlatform nodejs pnpm
 #
-# `rustVersion` arrives through moduleArgs, so this check never parses
-# flake.nix as text. Read the pnpm pin from `pnpm.version` for the same reason.
+# Contract: this check never parses flake.nix as text. `rustVersion` arrives
+# through moduleArgs for exactly that reason.
+#
+# Suggested approach, not part of the contract: read the pnpm pin from
+# `pnpm.version`, which avoids a second text parse.
 _moduleArgs:
 
 { }
