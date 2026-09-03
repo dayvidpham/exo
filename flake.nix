@@ -54,7 +54,7 @@
       #   - .github/workflows/ci.yml dtolnay/rust-toolchain pin
       #   - package.json             (for the pnpm and Node.js pins)
       # .github/workflows/integration.yml carries the same pin and is covered by
-      # a follow-up to issue #5.
+      # issue #11.
       rustVersion = "1.95.0";
 
       # Exact pnpm release. It is read from package.json packageManager, so
