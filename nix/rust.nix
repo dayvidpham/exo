@@ -21,8 +21,14 @@ let
   # out, so an edit to any of them does not rebuild the Rust tree.
   # Every path below is either a workspace manifest, a workspace member, or a
   # file a member reads at build time. No Rust source in this tree uses
-  # include_str!, include_bytes!, or env!("CARGO_MANIFEST_DIR") to read a file
-  # outside crates/ or exo/scheduler-runner/, so the list is complete.
+  # include_str! or include_bytes!.
+  #
+  # One source does use env!("CARGO_MANIFEST_DIR") to reach outside its own
+  # crate: crates/exoharness/src/sandbox_provider/firecracker_lima.rs walks two
+  # directories up to the repository root and joins Cargo.toml onto it, to pass
+  # to limactl. That is the macOS Lima flow and it reads the path at run time,
+  # not at build time. The root Cargo.toml is in the fileset already, so nothing
+  # is missing from this list.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -43,6 +49,11 @@ let
   # Fake hash workflow: set a value to lib.fakeHash, run `nix build .#exo`, and
   # copy the reported `got:` hash back here. Recompute a hash only when the
   # matching git `rev` in Cargo.lock changes.
+  #
+  # Set one fake hash at a time. Fixed-output derivations that declare the same
+  # hash share one output path, so Nix builds only one of them and several
+  # lib.fakeHash values at once report a single mismatch. Resolve them one by
+  # one, or give each a different wrong value.
   #
   # Source of every value below: the fake hash workflow, run on 2026-09-03
   # against the revs in Cargo.lock at that time.
@@ -74,8 +85,11 @@ let
       inherit outputHashes;
     };
 
-    # Build only the two binaries this issue ships. The other workspace members
-    # are still compiled as dependencies where a binary needs them.
+    # Selects which binaries the build phase produces and the install phase
+    # puts in $out: the two this issue ships, and no other. It does not limit
+    # what gets compiled overall. The check phase below runs
+    # cargo test --workspace --all-targets, which compiles every workspace
+    # member.
     cargoBuildFlags = [ "-p" "exo" "-p" "exo-scheduler-runner" ];
 
     nativeBuildInputs = with pkgs; [
@@ -156,8 +170,10 @@ in
     # here gave two store paths, one per attribute. The `//` update keeps
     # drvPath and outPath from `exo`, so both attributes stay one build.
     #
-    # Both attributes share one derivation, so any override of the build itself
-    # belongs on packages.exo. An override applied here would change nothing.
+    # Apply build overrides to packages.exo, not here. .overrideAttrs does work
+    # on this attribute, but it starts from `exo` and drops the meta set below,
+    # so it returns a second full build of the workspace whose mainProgram is
+    # `exo`, not `exo-scheduler-runner`.
     exo-scheduler-runner = exo // {
       meta = exo.meta // {
         description = "Exo scheduler runner";
