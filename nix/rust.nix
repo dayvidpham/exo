@@ -23,12 +23,21 @@ let
   # file a member reads at build time. No Rust source in this tree uses
   # include_str! or include_bytes!.
   #
-  # One source does use env!("CARGO_MANIFEST_DIR") to reach outside its own
-  # crate: crates/exoharness/src/sandbox_provider/firecracker_lima.rs walks two
+  # Two places resolve paths against CARGO_MANIFEST_DIR, and both are covered.
+  #
+  # crates/firecracker-guest/build.rs reads five files at build time, relative
+  # to its own manifest directory: Cargo.toml, src/main.rs, src/linux.rs, and
+  # ../firecracker-protocol/Cargo.toml and ../firecracker-protocol/src/lib.rs.
+  # The last two reach into a sibling crate, so `../crates` as a whole is what
+  # covers them. Do not narrow this fileset to single crate directories: that
+  # build script would then fail to find the protocol crate.
+  #
+  # crates/exoharness/src/sandbox_provider/firecracker_lima.rs walks two
   # directories up to the repository root and joins Cargo.toml onto it, to pass
   # to limactl. That is the macOS Lima flow and it reads the path at run time,
-  # not at build time. The root Cargo.toml is in the fileset already, so nothing
-  # is missing from this list.
+  # not at build time. The root Cargo.toml is in the fileset already.
+  #
+  # So nothing is missing from this list.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -183,9 +192,11 @@ in
   };
 
   checks = {
-    # The same three commands as .github/workflows/ci.yml and .githooks/pre-push:
-    # cargo fmt --all -- --check, cargo clippy --workspace --all-targets, and
-    # cargo test --workspace --all-targets.
+    # The same three commands as the rust-tests job in
+    # .github/workflows/ci.yml: cargo fmt --all -- --check,
+    # cargo clippy --workspace --all-targets, and
+    # cargo test --workspace --all-targets. .githooks/pre-push runs the clippy
+    # command only, so this check is the wider of the two.
     #
     # This derivation runs the first two itself. It gets the third by depending
     # on packages.exo, whose doCheck runs the tests: the install phase writes
