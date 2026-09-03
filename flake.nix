@@ -5,10 +5,13 @@
   # INPUTS
   # ============================================================
 
-  inputs = rec {
+  inputs = {
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixpkgs = nixpkgs-unstable;
+    # `nixpkgs` is the channel the outputs are built from. It follows
+    # nixpkgs-unstable rather than repeating the URL, so flake.lock holds one
+    # node for the two names instead of two nodes that must agree.
+    nixpkgs.follows = "nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -105,14 +108,19 @@
               rustc = rustToolchain;
             };
 
-            # Node.js is pinned to major 22, the major that mise.toml names.
-            # An exact patch pin would need a source build and is not worth it.
+            # Node.js is pinned to major 22 only. mise.toml pins the exact
+            # patch, 22.15.0, but `nodejs_22` gives whatever patch the locked
+            # nixpkgs carries. An exact patch pin would need a source build and
+            # is not worth it. So the drift check in issue #5 compares the
+            # Node.js major only, not the full version.
             nodejs = pkgs.nodejs_22;
 
             # pnpm is pinned to the exact packageManager version. pnpm 10 has
-            # manage-package-manager-versions on by default, so a different
-            # pnpm on PATH would download the named version and the shell would
-            # not be frozen.
+            # manage-package-manager-versions on by default, so a pnpm on PATH
+            # that differs from packageManager would download the named version
+            # and the shell would not be frozen. The dev shell also exports
+            # npm_config_manage_package_manager_versions=false, which turns that
+            # behaviour off outright.
             pnpm = pkgs.pnpm_10.override {
               version = pnpmVersion;
               hash = pnpmHash;
