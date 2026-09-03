@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # Toolchain pin drift check.
 #
-# Compares the Rust, Node.js, and pnpm pins across five manifests: flake.nix,
-# mise.toml, Cargo.toml, .github/workflows/ci.yml, and package.json.
+# Compares the Rust, Node.js, and pnpm pins across six manifests: flake.nix,
+# mise.toml, Cargo.toml, .github/workflows/ci.yml,
+# .github/workflows/integration.yml, and package.json.
 #
 # Nix parses flake.nix, mise.toml, Cargo.toml, and the pnpm and Node.js pins
 # before this script runs, with `rustVersion`, `nodejs.version`, and
 # `pnpm.version` (all passed through moduleArgs) and builtins.fromTOML.
 # Their already-extracted values arrive below as environment variables. This
-# script parses .github/workflows/ci.yml itself, because Nix has no YAML
-# parser in the standard library. The parse is anchored to the exact step
-# names "Set up Rust", "Set up Node.js", and "Set up pnpm".
+# script parses .github/workflows/ci.yml and .github/workflows/integration.yml
+# itself, because Nix has no YAML parser in the standard library. The parse
+# is anchored to the exact step names "Set up Rust", "Set up Node.js", and
+# "Set up pnpm". integration.yml sets up Rust only, through the same
+# dtolnay/rust-toolchain step named "Set up Rust"; it does not set up
+# Node.js or pnpm, so no comparison is made for those tools against it.
 #
 # Comparison rules:
 #   rust: the number of dot-separated fields in the manifest's own value
@@ -27,11 +31,12 @@
 #   node: mise.toml, through MISE_NODE.
 #   pnpm: package.json, through PACKAGE_PNPM.
 #
-# ci.yml can name a step twice (for example a merge conflict left both
-# halves in place). A step named twice with disagreeing values is itself a
-# drift: it is reported by name and never allowed to reach a normal
-# comparison as a multi-line value, because a multi-line value would make a
-# tool such as `cut` fail outright instead of reporting a drift.
+# ci.yml or integration.yml can name a step twice (for example a merge
+# conflict left both halves in place). A step named twice with disagreeing
+# values is itself a drift: it is reported by name and never allowed to
+# reach a normal comparison as a multi-line value, because a multi-line
+# value would make a tool such as `cut` fail outright instead of reporting
+# a drift.
 #
 # Required environment variables:
 #   RUST_VERSION       flake.nix rust-overlay pin, for example 1.95.0
@@ -46,10 +51,13 @@
 #   PACKAGE_PNPM       package.json packageManager pnpm version, for example 10.26.2
 #   CI_YML_PATH        path to the ci.yml file; this script reads it
 #   CI_YML_LABEL       label for that file, named in failure messages
+#   INTEGRATION_YML_PATH  path to the integration.yml file; this script reads it
+#   INTEGRATION_YML_LABEL label for that file, named in failure messages
 #
 # Exit code: 0 when every pin agrees. 1 when one or more pins disagree. Every
 # disagreement is reported, one line per drift, before the script exits. 2
-# when a required value is missing or ci.yml cannot be parsed.
+# when a required value is missing or ci.yml or integration.yml cannot be
+# parsed.
 
 set -euo pipefail
 
@@ -65,6 +73,8 @@ set -euo pipefail
 : "${PACKAGE_PNPM:?PACKAGE_PNPM is required}"
 : "${CI_YML_PATH:?CI_YML_PATH is required}"
 : "${CI_YML_LABEL:?CI_YML_LABEL is required}"
+: "${INTEGRATION_YML_PATH:?INTEGRATION_YML_PATH is required}"
+: "${INTEGRATION_YML_LABEL:?INTEGRATION_YML_LABEL is required}"
 
 fail=0
 
@@ -191,12 +201,19 @@ CI_PNPM=$(extract_step_field "$CI_YML_PATH" "Set up pnpm" \
   's/^[[:space:]]*version:[[:space:]]*([^[:space:]]+).*/\1/p' \
   "version")
 
+INTEGRATION_RUST=$(extract_step_field "$INTEGRATION_YML_PATH" "Set up Rust" \
+  's/^[[:space:]]*uses:.*#[[:space:]]*([0-9]+(\.[0-9]+)*)[[:space:]]*$/\1/p' \
+  "the dtolnay/rust-toolchain pin comment")
+
 # ---- Rust: source of truth is flake.nix (RUST_VERSION). ----
 
 compare_rust "$MISE_TOML_LABEL" "$MISE_RUST"
 compare_rust "$CARGO_TOML_LABEL" "$CARGO_RUST"
 if require_single rust "Set up Rust" "$CI_YML_LABEL" "$CI_RUST"; then
   compare_rust "$CI_YML_LABEL" "$CI_RUST"
+fi
+if require_single rust "Set up Rust" "$INTEGRATION_YML_LABEL" "$INTEGRATION_RUST"; then
+  compare_rust "$INTEGRATION_YML_LABEL" "$INTEGRATION_RUST"
 fi
 
 # ---- Node.js: source of truth is mise.toml (MISE_NODE), major only. The
@@ -225,7 +242,7 @@ if require_single pnpm "Set up pnpm" "$CI_YML_LABEL" "$CI_PNPM"; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "ok: rust $RUST_VERSION, node major $(fields "$MISE_NODE" 1) (flake.nix $NODEJS_VERSION), pnpm $PACKAGE_PNPM agree across $MISE_TOML_LABEL, $CARGO_TOML_LABEL, $CI_YML_LABEL, and $PACKAGE_JSON_LABEL"
+  echo "ok: rust $RUST_VERSION, node major $(fields "$MISE_NODE" 1) (flake.nix $NODEJS_VERSION), pnpm $PACKAGE_PNPM agree across flake.nix, $MISE_TOML_LABEL, $CARGO_TOML_LABEL, $CI_YML_LABEL, $INTEGRATION_YML_LABEL, and $PACKAGE_JSON_LABEL"
 fi
 
 exit "$fail"
