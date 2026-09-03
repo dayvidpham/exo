@@ -4,7 +4,7 @@
 #   packages.exo                  - the `exo` binary from crates/cli
 #   packages.exo-scheduler-runner - the binary from exo/scheduler-runner
 #   checks.rust                   - cargo fmt --check, cargo clippy -D warnings,
-#                                   and cargo test --workspace
+#                                   and cargo test --workspace --all-targets
 #
 # Argument set (moduleArgs from flake.nix):
 #   pkgs lib self system pname version
@@ -79,38 +79,52 @@ let
     cargoBuildFlags = [ "-p" "exo" "-p" "exo-scheduler-runner" ];
 
     nativeBuildInputs = with pkgs; [
-      # openssl-sys and libgit2-sys look their C libraries up through pkg-config.
+      # openssl-sys, libgit2-sys, and libz-sys look their C libraries up
+      # through pkg-config.
       pkg-config
       # aws-lc-sys drives its C build with cmake.
       cmake
     ];
 
     buildInputs = with pkgs; [
-      # openssl-sys links against it. libsqlite3-sys and zstd-sys build their
-      # bundled C source with the stdenv compiler and need nothing here.
+      # openssl-sys links against it. zstd-sys compiles its bundled C source
+      # with the stdenv compiler and needs nothing here.
       openssl
     ];
 
     doCheck = true;
-    cargoTestFlags = [ "--workspace" ];
 
-    # Test-only dependency. The process bridge tests in
-    # crates/exoharness/src/sandbox_provider/process_bridge.rs start the bridge
-    # script with `python3` and fail with ENOENT when it is not on PATH.
-    # mise.toml pins Python 3.11, so the check uses the same major and minor.
-    nativeCheckInputs = [ pkgs.python311 ];
+    # The same target selection as the `cargo test` step in
+    # .github/workflows/ci.yml. --all-targets covers lib, bin, test, bench, and
+    # example targets. It excludes doctests, so this build does not run them,
+    # exactly as CI does not.
+    cargoTestFlags = [ "--workspace" "--all-targets" ];
+
+    nativeCheckInputs = with pkgs; [
+      # Test-only dependency. The process bridge tests in
+      # crates/exoharness/src/sandbox_provider/process_bridge.rs start the
+      # bridge script with `python3` and fail with ENOENT when it is not on
+      # PATH. mise.toml pins Python 3.11, so this uses the same major and
+      # minor. The drift check in issue #5 compares rust, node, and pnpm only,
+      # so nothing checks this pin automatically: match it to mise.toml by hand
+      # when that file changes.
+      python311
+    ];
 
     # Flags for the test harness. They land after the `--` that cargoCheckHook
     # adds, so the test binary reads them.
     #
-    # The whole workspace test run takes a few seconds, so one thread costs
-    # little. It keeps
-    # sandbox::tests::docker_warm_sandbox_lookup_uses_docker_ps_filters
-    # passing: that test writes a fake `docker` shell script into a temporary
-    # directory and then runs it. With parallel test threads the run failed in
-    # the sandbox with `Text file busy`, because another thread forked while the
-    # script file was still open for writing and the child inherited the
-    # descriptor. One thread removes that race, so no test has to be skipped.
+    # This is a workaround, not a fix. The test
+    # sandbox::tests::docker_warm_sandbox_lookup_uses_docker_ps_filters writes a
+    # fake `docker` shell script into a temporary directory and then runs it.
+    # With parallel test threads it failed here with
+    # `find warm sandbox: Text file busy (os error 26)`, because another thread
+    # forked while the script file was still open for writing and the child
+    # inherited the descriptor. One thread hides that race; it does not remove
+    # it, and .github/workflows/ci.yml still runs the suite in parallel.
+    #
+    # Issue #14 tracks the fix in the test itself. Delete this flag when #14
+    # lands, so this build runs the suite in parallel like CI does.
     #
     # No test is skipped. Tests marked #[ignore] are already skipped by cargo:
     # they need the network, a container daemon, or a real sandbox provider.
@@ -132,27 +146,38 @@ in
     # `nix run` and `nix build` name the scheduler runner instead of the CLI and
     # both attributes resolve to one store path.
     #
-    # This is a plain attribute update, not overrideAttrs. mkDerivation turns
-    # meta.mainProgram into the NIX_MAIN_PROGRAM build variable, so an
-    # overrideAttrs here would produce a second derivation and build the
-    # workspace twice. The update keeps drvPath and outPath from `exo`.
-    exo-scheduler-runner = exo // {
-      meta = exo.meta // {
+    # addMetaAttrs updates meta only, it does not call overrideAttrs.
+    # mkDerivation turns meta.mainProgram into the NIX_MAIN_PROGRAM build
+    # variable, so an overrideAttrs here would produce a second derivation and
+    # build the workspace twice. This keeps drvPath and outPath from `exo`.
+    #
+    # Both attributes share one derivation, so any override of the build itself
+    # belongs on packages.exo. An override applied here would change nothing.
+    exo-scheduler-runner = lib.addMetaAttrs
+      {
         description = "Exo scheduler runner";
         mainProgram = "exo-scheduler-runner";
-      };
-    };
+      }
+      exo;
   };
 
   checks = {
     # The same three commands as .github/workflows/ci.yml and .githooks/pre-push:
     # cargo fmt --all -- --check, cargo clippy --workspace --all-targets, and
-    # cargo test --workspace.
+    # cargo test --workspace --all-targets.
     #
-    # This derivation runs the first two. The install phase below records the
-    # packages.exo store path, which makes this check depend on that package,
-    # whose doCheck runs the workspace tests. So `nix flake check` covers all
-    # three commands and the workspace is compiled twice, not three times.
+    # This derivation runs the first two itself. It gets the third by depending
+    # on packages.exo, whose doCheck runs the tests: the install phase writes
+    # that package's store path into $out, and the reference is what creates the
+    # dependency. Two consequences follow, both deliberate:
+    #
+    #   - That one line is the only reason `nix flake check` runs the workspace
+    #     tests. `nix flake check` builds checks, not packages, so removing the
+    #     line silently drops the tests from the check.
+    #   - It orders the work. Nix builds packages.exo first, so fmt and clippy
+    #     wait behind the full package build and its tests instead of running
+    #     beside them. That trades wall clock for one fewer compile of the
+    #     workspace: two in total, not three.
     #
     # It reuses the package source and its vendored cargo dependencies, so it
     # needs no extra fetching.
@@ -174,9 +199,8 @@ in
 
       doCheck = false;
 
-      # Writing the store path puts a reference to packages.exo in the output,
-      # so this check cannot succeed unless that package, and therefore
-      # cargo test --workspace, succeeded first.
+      # Depends on packages.exo, so the workspace tests run. See the block
+      # comment above before changing this line.
       installPhase = ''
         runHook preInstall
         echo "${exo}" > $out
