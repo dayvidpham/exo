@@ -12,3 +12,4 @@ website/.wrangler
 .exo
 .brain
 .direnv
+.envrc.local

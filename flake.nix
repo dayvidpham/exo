@@ -6,6 +6,7 @@
   # ============================================================
 
   inputs = {
+    # Kept so `mkOutputs` can be pointed at the stable channel in one place.
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     # `nixpkgs` is the channel the outputs are built from. It follows
@@ -24,10 +25,9 @@
   # ============================================================
 
   outputs =
-    inputs@{ self
+    { self
     , nixpkgs
     , nixpkgs-stable
-    , nixpkgs-unstable
     , flake-utils
     , rust-overlay
     , ...
@@ -46,12 +46,15 @@
       # evaluates.
       version = self.shortRev or self.dirtyShortRev or "dev";
 
-      # Exact Rust release. This value must agree with:
-      #   - mise.toml [tools].rust        (major.minor)
-      #   - Cargo.toml rust-version       (major.minor)
-      #   - .github/workflows/ci.yml      dtolnay/rust-toolchain pin
-      #   - .github/workflows/integration.yml dtolnay/rust-toolchain pin
-      # Issue #5 adds checks.toolchain-pins, which enforces this agreement.
+      # Exact Rust release. checks.toolchain-pins, added by issue #5, compares
+      # this value across five manifests:
+      #   - flake.nix                (this file)
+      #   - mise.toml [tools].rust   (major.minor)
+      #   - Cargo.toml rust-version  (major.minor)
+      #   - .github/workflows/ci.yml dtolnay/rust-toolchain pin
+      #   - package.json             (for the pnpm and Node.js pins)
+      # .github/workflows/integration.yml carries the same pin and is covered by
+      # a follow-up to issue #5.
       rustVersion = "1.95.0";
 
       # Exact pnpm release. It is read from package.json packageManager, so
