@@ -4,7 +4,8 @@
 #   checks.toolchain-pins           - fails when two manifests disagree on a
 #                                     pin, checked against the repository's
 #                                     own mise.toml, Cargo.toml,
-#                                     .github/workflows/ci.yml, and
+#                                     .github/workflows/ci.yml,
+#                                     .github/workflows/integration.yml, and
 #                                     package.json.
 #   checks.toolchain-pins-fixtures  - runs the same script against the golden
 #                                     cases under nix/fixtures/toolchain-pins,
@@ -31,15 +32,26 @@ let
 
   # Reads mise.toml and Cargo.toml, the two manifests left for this function
   # to parse (builtins.fromTOML), and builds the environment
-  # nix/toolchain-pins.sh runs with. `ciYml` is passed straight through as a
-  # path: the script parses .github/workflows/ci.yml itself, because Nix has
-  # no YAML parser in the standard library. `ciYmlLabel`, `expectedRust`, and
-  # `expectedNode` are parameters, not values closed over from the outer
-  # scope: a fixture case supplies its own fixed rust and Node.js pins (see
-  # fixtureCases below) so the golden cases stay hermetic, independent of
-  # the live flake.nix and nodejs.version values.
+  # nix/toolchain-pins.sh runs with. `ciYml` and `integrationYml` are passed
+  # straight through as paths: the script parses .github/workflows/ci.yml and
+  # .github/workflows/integration.yml itself, because Nix has no YAML parser
+  # in the standard library. `ciYmlLabel`, `integrationYmlLabel`,
+  # `expectedRust`, and `expectedNode` are parameters, not values closed over
+  # from the outer scope: a fixture case supplies its own fixed rust and
+  # Node.js pins (see fixtureCases below) so the golden cases stay hermetic,
+  # independent of the live flake.nix and nodejs.version values.
   mkEnv =
-    { miseToml, cargoToml, ciYml, ciYmlLabel, expectedRust, expectedNode, pnpmVersion }:
+    {
+      miseToml,
+      cargoToml,
+      ciYml,
+      ciYmlLabel,
+      integrationYml,
+      integrationYmlLabel,
+      expectedRust,
+      expectedNode,
+      pnpmVersion,
+    }:
     let
       mise = builtins.fromTOML (builtins.readFile miseToml);
       cargo = builtins.fromTOML (builtins.readFile cargoToml);
@@ -55,11 +67,14 @@ let
       CARGO_RUST = cargo.workspace.package."rust-version";
       PACKAGE_JSON_LABEL = "package.json";
       PACKAGE_PNPM = pnpmVersion;
-      # String interpolation ("${path}"), not toString, on the ci.yml path:
-      # toString on a Nix path drops its store context, so the sandboxed
-      # build would not see the file the value names.
+      # String interpolation ("${path}"), not toString, on the ci.yml and
+      # integration.yml paths: toString on a Nix path drops its store
+      # context, so the sandboxed build would not see the file the value
+      # names.
       CI_YML_PATH = "${ciYml}";
       CI_YML_LABEL = ciYmlLabel;
+      INTEGRATION_YML_PATH = "${integrationYml}";
+      INTEGRATION_YML_LABEL = integrationYmlLabel;
     };
 
   # checks.toolchain-pins: the drift check on the repository's own manifests.
@@ -71,6 +86,8 @@ let
           cargoToml = "${self}/Cargo.toml";
           ciYml = "${self}/.github/workflows/ci.yml";
           ciYmlLabel = ".github/workflows/ci.yml";
+          integrationYml = "${self}/.github/workflows/integration.yml";
+          integrationYmlLabel = ".github/workflows/integration.yml";
           expectedRust = rustVersion;
           expectedNode = nodejs.version;
           pnpmVersion = pnpm.version;
@@ -84,9 +101,9 @@ let
       '';
 
   # nix/fixtures/toolchain-pins/<case>/ holds copies of mise.toml, Cargo.toml,
-  # package.json, and ci.yml. The case list below is the single source of
-  # truth for the expected outcome: no per-case "expected" file, and no
-  # directory scan discovers new cases.
+  # package.json, ci.yml, and integration.yml. The case list below is the
+  # single source of truth for the expected outcome: no per-case "expected"
+  # file, and no directory scan discovers new cases.
   #
   # `rustVersion` and `nodeVersion` are fixed per case, not the live
   # flake.nix pins, so a case stays hermetic even if the flake's own pins
@@ -130,6 +147,16 @@ let
       driftTool = "pnpm";
       driftFile = "mise.toml";
     }
+    {
+      # Only integration.yml drifts; mise.toml, Cargo.toml, and ci.yml all
+      # agree with the case's rustVersion.
+      name = "integration-rust-drift";
+      expectPass = false;
+      rustVersion = "1.95.0";
+      nodeVersion = "22.22.3";
+      driftTool = "rust";
+      driftFile = "integration.yml";
+    }
   ];
 
   fixtureDir = case: ./fixtures/toolchain-pins + "/${case.name}";
@@ -150,6 +177,8 @@ let
         cargoToml = dir + "/Cargo.toml";
         ciYml = dir + "/ci.yml";
         ciYmlLabel = "ci.yml";
+        integrationYml = dir + "/integration.yml";
+        integrationYmlLabel = "integration.yml";
         expectedRust = case.rustVersion;
         expectedNode = case.nodeVersion;
         inherit pnpmVersion;
