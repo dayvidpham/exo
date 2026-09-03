@@ -146,19 +146,24 @@ in
     # `nix run` and `nix build` name the scheduler runner instead of the CLI and
     # both attributes resolve to one store path.
     #
-    # addMetaAttrs updates meta only, it does not call overrideAttrs.
-    # mkDerivation turns meta.mainProgram into the NIX_MAIN_PROGRAM build
-    # variable, so an overrideAttrs here would produce a second derivation and
-    # build the workspace twice. This keeps drvPath and outPath from `exo`.
+    # This is a plain attribute update. It must not become overrideAttrs, and it
+    # must not become lib.addMetaAttrs either. mkDerivation turns
+    # meta.mainProgram into the NIX_MAIN_PROGRAM build variable, so any route
+    # that goes through overrideAttrs produces a second derivation and builds
+    # the whole workspace again. lib.addMetaAttrs takes that route: it calls
+    # drv.overrideAttrs whenever the derivation has it (nixpkgs lib/meta.nix,
+    # addMetaAttrs), and only falls back to a plain update otherwise. Using it
+    # here gave two store paths, one per attribute. The `//` update keeps
+    # drvPath and outPath from `exo`, so both attributes stay one build.
     #
     # Both attributes share one derivation, so any override of the build itself
     # belongs on packages.exo. An override applied here would change nothing.
-    exo-scheduler-runner = lib.addMetaAttrs
-      {
+    exo-scheduler-runner = exo // {
+      meta = exo.meta // {
         description = "Exo scheduler runner";
         mainProgram = "exo-scheduler-runner";
-      }
-      exo;
+      };
+    };
   };
 
   checks = {
