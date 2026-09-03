@@ -31,11 +31,12 @@
 #   node: mise.toml, through MISE_NODE.
 #   pnpm: package.json, through PACKAGE_PNPM.
 #
-# ci.yml can name a step twice (for example a merge conflict left both
-# halves in place). A step named twice with disagreeing values is itself a
-# drift: it is reported by name and never allowed to reach a normal
-# comparison as a multi-line value, because a multi-line value would make a
-# tool such as `cut` fail outright instead of reporting a drift.
+# ci.yml or integration.yml can name a step twice (for example a merge
+# conflict left both halves in place). A step named twice with disagreeing
+# values is itself a drift: it is reported by name and never allowed to
+# reach a normal comparison as a multi-line value, because a multi-line
+# value would make a tool such as `cut` fail outright instead of reporting
+# a drift.
 #
 # Required environment variables:
 #   RUST_VERSION       flake.nix rust-overlay pin, for example 1.95.0

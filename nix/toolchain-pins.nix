@@ -17,7 +17,8 @@
 #
 # Contract: this file never parses flake.nix as text. `rustVersion`, the
 # flake's own rust pin, arrives through moduleArgs above and is the source of
-# truth the script compares mise.toml, Cargo.toml, and ci.yml against. `pnpm`
+# truth the script compares mise.toml, Cargo.toml, ci.yml, and
+# integration.yml against. `pnpm`
 # also arrives through moduleArgs: `pnpm.version` is the same value flake.nix
 # already read out of package.json to build that derivation, so the real
 # check does not read package.json a second time. `nodejs.version` is the
