@@ -9,11 +9,15 @@
 # 2026-05-29, with commits as recent as 2026-09-02) and was not retired, so
 # no alternative cache action was needed. Its FlakeHub Cache half is gated
 # behind a registered FlakeHub account and an OIDC token, neither of which
-# exist here, so it is switched off with use-flakehub: false. The GitHub
-# Actions cache half (use-gha-cache) needs no account and stays on.
+# exist here, so it is switched off with use-flakehub: false. The Install
+# Nix step prints the same "FlakeHub is disabled" notice for the same
+# reason; that is expected, not a separate problem. The GitHub Actions
+# cache half (use-gha-cache) needs no account and stays on.
 #
 # push to the nix-flake branch is temporary: remove that branch entry from
 # the push trigger once nix-flake merges into main.
+#
+# This job runs on ubuntu-latest only. A macOS runner is a follow-up.
 name: Nix
 
 on:
