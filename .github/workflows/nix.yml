@@ -1,0 +1,48 @@
+# Pinned actions, resolved 2026-09-03:
+#   actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd            # v6.0.2 (same pin as ci.yml)
+#   DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25   # v22
+#   DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+#
+# The Determinate Systems installer is used because the maintainer runs
+# Determinate Nix locally, so CI matches the local install. Its companion
+# cache action, magic-nix-cache-action, is still maintained (v14, released
+# 2026-05-29, with commits as recent as 2026-09-02) and was not retired or
+# gated, so no alternative cache action was needed.
+#
+# push to the nix-flake branch is temporary: remove that branch entry from
+# the push trigger once nix-flake merges into main.
+name: Nix
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - nix-flake
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-latest
+    # No real run has completed yet: the fork this job runs in inherited its
+    # workflows switched off, so this value is an estimate pending the first
+    # real run. Revisit once a run completes.
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Restore Nix store cache
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      - name: Check flake
+        run: nix flake check
+
+      - name: Build packages
+        run: nix build .#exo .#exo-scheduler-runner .#node-modules
