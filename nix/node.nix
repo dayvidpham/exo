@@ -137,19 +137,16 @@ let
   #   against the value below and stops with `hash mismatch in fixed-output
   #   derivation`, printing `specified:` and `got:`. Copy the `got:` value here.
   #
-  #   A change to an `integrity:` value alone is not caught on a warm store. An
-  #   `integrity:` value lives only in the `packages:` section, because the
-  #   `snapshots:` section carries none, so that is the only place such an edit
-  #   can be made. The build then succeeds with exit 0 and no warning: the
-  #   offline install resolves a package by name and version and takes its
-  #   tarball from the prefetched store without rechecking it. Measured with a
-  #   transitive package, `@ai-sdk/provider@1.1.3`, and with a direct one,
-  #   `qrcode-terminal@0.12.0`. When the fetch really runs the same edit stops
-  #   it earlier, at `ERR_PNPM_TARBALL_INTEGRITY`, so the hash comparison is
-  #   never reached.
+  #   A change to an `integrity:` value alone is caught for some edits and not
+  #   for others, so do not rely on it either way. Measured on one package,
+  #   warm store: changing character 40 of the base64 body fails with
+  #   `ERR_PNPM_NO_OFFLINE_TARBALL`, and changing the second to last data
+  #   character passes with exit 0. When the fetch really runs, pnpm rejects a
+  #   wrong integrity with `ERR_PNPM_TARBALL_INTEGRITY` before Nix ever compares
+  #   hashes.
   #
-  # So this hash guards the set of packages that get installed. It is not a
-  # tamper check on the bytes of `pnpm-lock.yaml`.
+  # So this hash guards the resolved dependency set. It is not a tamper check on
+  # the bytes of `pnpm-lock.yaml`.
   #
   # Source of the value below: the fake hash workflow, on x86_64-linux.
   pnpmDepsHash = "sha256-xZdOhU/tkeZKyBnkDI/9QbIqTVzvQYKX0Y1wr075Ibs=";
