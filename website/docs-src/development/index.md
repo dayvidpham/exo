@@ -41,7 +41,7 @@ nix build .#exo
 nix build .#node-modules
 ```
 
-`nix flake check` runs `checks.rust` (`cargo fmt --check`,
+`nix flake check` runs `checks.rust` (`cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
 `cargo test --workspace --all-targets`) and `checks.toolchain-pins` (the
 drift check across `flake.nix`, `mise.toml`, `Cargo.toml`,
@@ -70,20 +70,25 @@ back into the flake.
 | --- | --- | --- | --- |
 | `cargoLock.outputHashes` (one entry per git source) | `nix/rust.nix` | a git `rev` in `Cargo.lock` changes | `nix build .#exo` |
 | `pnpmHash` | `flake.nix` | `packageManager` in `package.json` changes | `nix develop` |
-| `pnpmDepsHash` | `nix/node.nix` | `pnpm-lock.yaml`, the pinned pnpm version, or the fetcher's `supportedArchitectures` list changes | `nix build .#node-modules` |
+| `pnpmDepsHash` | `nix/node.nix` | `pnpm-lock.yaml`, the pinned pnpm version, the fetcher's `supportedArchitectures` list, or `fetcherVersion` changes | `nix build .#node-modules` |
 
-A stale `pnpmDepsHash` fails one of two ways, depending on whether the Nix
-store already holds the old fetch:
+pnpm's offline install finds a package by the first 32 bytes of its sha512
+integrity digest, not by the whole lockfile entry. So `pnpmDepsHash` goes
+stale only when the resolved set of packages changes, or an integrity value
+changes inside those first 32 bytes. An integrity edit confined to the last
+32 bytes still passes on a warm store: the hash guards the set of packages
+installed, not every byte of `pnpm-lock.yaml`.
+
+A stale `pnpmDepsHash` then fails one of two ways, depending on whether the
+Nix store already holds the old fetch:
 
 - Cold store: the fetch runs again, and Nix stops it with
   `hash mismatch in fixed-output derivation`, printing `specified:` and
-  `got:`. Copy the `got:` value into `nix/node.nix`.
+  `got:`, or with `ERR_PNPM_TARBALL_INTEGRITY`. Copy the `got:` value into
+  `nix/node.nix`.
 - Warm store: the output path of a fixed-output derivation depends only on
   its declared hash and name, not on `pnpm-lock.yaml`. An edited lockfile
   resolves to the same, already-built path, so no fetch runs and no mismatch
   is reported at that step. The failure surfaces one step later, inside
   `packages.node-modules`, as `ERR_PNPM_NO_OFFLINE_TARBALL`: the prefetched
   store does not hold the tarball the new lockfile needs.
-
-Both outcomes mean the same thing: the hash in `nix/node.nix` no longer
-describes `pnpm-lock.yaml`.

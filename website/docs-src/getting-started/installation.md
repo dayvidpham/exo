@@ -80,8 +80,8 @@ harnesses.
 The repository ships a `flake.nix` that pins Node.js, pnpm, and Rust to the
 exact versions this repository builds against. It is a second way to get a
 toolchain, alongside the [Prerequisites](#prerequisites) list and the setup
-script in [Quick Start](https://github.com/exoharness/exo#quick-start). It does not change
-what the setup script does.
+script in [Quick Start](https://github.com/exoharness/exo#quick-start).
+It does not change what the setup script does.
 
 ```bash
 git clone https://github.com/exoharness/exo
@@ -90,8 +90,9 @@ nix develop
 ```
 
 `nix develop` opens a shell with the pinned toolchain on `PATH` and prints
-their versions. Run the [Quick Start](https://github.com/exoharness/exo#quick-start)
-commands inside that shell, or prefix any command with `nix develop -c`, for
+their versions. Run the
+[Quick Start](https://github.com/exoharness/exo#quick-start) commands
+inside that shell, or prefix any command with `nix develop -c`, for
 example `nix develop -c ./exo.sh`.
 
 With [direnv](https://direnv.net/) installed, run `direnv allow` once in the
