@@ -1,0 +1,59 @@
+# Pinned actions, resolved 2026-09-03:
+#   actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd            # v6.0.2 (same pin as ci.yml)
+#   DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25   # v22
+#   DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+#
+# The Determinate Systems installer is used because the maintainer runs
+# Determinate Nix locally, so CI matches the local install. Its companion
+# cache action, magic-nix-cache-action, is still maintained (v14, released
+# 2026-05-29, with commits as recent as 2026-09-02) and was not retired, so
+# no alternative cache action was needed. Its FlakeHub Cache half is gated
+# behind a registered FlakeHub account and an OIDC token, neither of which
+# exist here, so it is switched off with use-flakehub: false. The Install
+# Nix step prints the same "FlakeHub is disabled" notice for the same
+# reason; that is expected, not a separate problem. The GitHub Actions
+# cache half (use-gha-cache) needs no account and stays on.
+#
+# push to the nix-flake branch is temporary: remove that branch entry from
+# the push trigger once nix-flake merges into main.
+#
+# This job runs on ubuntu-latest only. A macOS runner is a follow-up.
+name: Nix
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - nix-flake
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    runs-on: ubuntu-latest
+    # The first green run (run 33821437107) took 19m21s. 30 minutes leaves margin.
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Restore Nix store cache
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+
+      # --no-update-lock-file makes a missing or stale flake.lock fail the
+      # command by itself, instead of Nix silently regenerating the lock
+      # from floating input refs and only failing later, for an unrelated
+      # reason, if the regenerated lock happens to break evaluation.
+      - name: Check flake
+        run: nix flake check --no-update-lock-file
+
+      - name: Build packages
+        run: nix build --no-update-lock-file .#exo .#exo-scheduler-runner .#node-modules
