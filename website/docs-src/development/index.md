@@ -43,9 +43,11 @@ nix build .#node-modules
 
 `nix flake check` runs `checks.rust` (`cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace --all-targets`) and `checks.toolchain-pins` (the
-drift check across `flake.nix`, `mise.toml`, `Cargo.toml`,
-`.github/workflows/ci.yml`, and `.github/workflows/integration.yml`).
+`cargo test --workspace --all-targets`), `checks.toolchain-pins` (the drift
+check across `flake.nix`, `mise.toml`, `Cargo.toml`,
+`.github/workflows/ci.yml`, and `.github/workflows/integration.yml`), and
+`checks.typescript` (`pnpm check` and `pnpm format:check` against
+`packages.node-modules`).
 
 `nix build .#exo` builds the `exo` binary with `rustPlatform.buildRustPackage`.
 `nix build .#node-modules` installs the pnpm dependency graph offline, from a
@@ -72,23 +74,24 @@ back into the flake.
 | `pnpmHash` | `flake.nix` | `packageManager` in `package.json` changes | `nix develop` |
 | `pnpmDepsHash` | `nix/node.nix` | `pnpm-lock.yaml`, the pinned pnpm version, the fetcher's `supportedArchitectures` list, or `fetcherVersion` changes | `nix build .#node-modules` |
 
-pnpm's offline install finds a package by the first 32 bytes of its sha512
-integrity digest, not by the whole lockfile entry. So `pnpmDepsHash` goes
-stale only when the resolved set of packages changes, or an integrity value
-changes inside those first 32 bytes. An integrity edit confined to the last
-32 bytes still passes on a warm store: the hash guards the set of packages
-installed, not every byte of `pnpm-lock.yaml`.
+pnpm's offline install finds a package through its store index file, named
+`v10/index/<first 2 hex>/<next 62 hex>-<name>@<version>.json`. Those 64 hex
+characters are the first 32 bytes of the package's sha512 integrity digest.
+So `pnpmDepsHash` goes stale when the resolved set of packages changes, or
+when an `integrity:` value changes inside those first 32 bytes, roughly the
+first 43 characters of the base64 body. An edit confined to the last 32
+bytes leaves the index file name alone and still passes on a warm store:
+the hash guards the resolved set of packages, not every byte of
+`pnpm-lock.yaml`.
 
-A stale `pnpmDepsHash` then fails one of two ways, depending on whether the
-Nix store already holds the old fetch:
+A resolved-set change fails on a warm store as
+`ERR_PNPM_NO_OFFLINE_TARBALL`, naming the missing package. On a cold store,
+or under `nix build .#node-modules.pnpmDeps --rebuild`, the fetch runs
+again and Nix stops it with `hash mismatch in fixed-output derivation`,
+printing `specified:` and `got:`. Copy the `got:` value into
+`nix/node.nix`.
 
-- Cold store: the fetch runs again, and Nix stops it with
-  `hash mismatch in fixed-output derivation`, printing `specified:` and
-  `got:`, or with `ERR_PNPM_TARBALL_INTEGRITY`. Copy the `got:` value into
-  `nix/node.nix`.
-- Warm store: the output path of a fixed-output derivation depends only on
-  its declared hash and name, not on `pnpm-lock.yaml`. An edited lockfile
-  resolves to the same, already-built path, so no fetch runs and no mismatch
-  is reported at that step. The failure surfaces one step later, inside
-  `packages.node-modules`, as `ERR_PNPM_NO_OFFLINE_TARBALL`: the prefetched
-  store does not hold the tarball the new lockfile needs.
+An integrity-only change inside the first 32 bytes fails on a warm store
+the same way, as `ERR_PNPM_NO_OFFLINE_TARBALL`. On a cold store the fetch
+runs, and pnpm rejects the wrong integrity itself with
+`ERR_PNPM_TARBALL_INTEGRITY`, before Nix ever compares the declared hash.
