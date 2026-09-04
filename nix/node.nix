@@ -137,13 +137,16 @@ let
   #   against the value below and stops with `hash mismatch in fixed-output
   #   derivation`, printing `specified:` and `got:`. Copy the `got:` value here.
   #
-  #   A change to an `integrity:` value alone is caught for some edits and not
-  #   for others, so do not rely on it either way. Measured on one package,
-  #   warm store: changing character 40 of the base64 body fails with
-  #   `ERR_PNPM_NO_OFFLINE_TARBALL`, and changing the second to last data
-  #   character passes with exit 0. When the fetch really runs, pnpm rejects a
-  #   wrong integrity with `ERR_PNPM_TARBALL_INTEGRITY` before Nix ever compares
-  #   hashes.
+  #   A change to an `integrity:` value alone is caught only when it lands in
+  #   the first half of the digest. The offline install finds a package through
+  #   its store index file, named
+  #   `v10/index/<first 2 hex>/<next 62 hex>-<name>@<version>.json`, and those
+  #   64 hex characters are the first 32 bytes of the sha512 digest. An edit
+  #   inside those bytes, about the first 43 characters of the base64 body,
+  #   misses the index and fails with `ERR_PNPM_NO_OFFLINE_TARBALL`. An edit
+  #   confined to the last 32 bytes leaves the index name alone and passes with
+  #   exit 0. When the fetch really runs, pnpm rejects any wrong integrity with
+  #   `ERR_PNPM_TARBALL_INTEGRITY` before Nix ever compares hashes.
   #
   # So this hash guards the resolved dependency set. It is not a tamper check on
   # the bytes of `pnpm-lock.yaml`.
