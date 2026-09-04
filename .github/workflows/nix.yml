@@ -6,8 +6,11 @@
 # The Determinate Systems installer is used because the maintainer runs
 # Determinate Nix locally, so CI matches the local install. Its companion
 # cache action, magic-nix-cache-action, is still maintained (v14, released
-# 2026-05-29, with commits as recent as 2026-09-02) and was not retired or
-# gated, so no alternative cache action was needed.
+# 2026-05-29, with commits as recent as 2026-09-02) and was not retired, so
+# no alternative cache action was needed. Its FlakeHub Cache half is gated
+# behind a registered FlakeHub account and an OIDC token, neither of which
+# exist here, so it is switched off with use-flakehub: false. The GitHub
+# Actions cache half (use-gha-cache) needs no account and stays on.
 #
 # push to the nix-flake branch is temporary: remove that branch entry from
 # the push trigger once nix-flake merges into main.
@@ -26,9 +29,7 @@ permissions:
 jobs:
   flake-check:
     runs-on: ubuntu-latest
-    # No real run has completed yet: the fork this job runs in inherited its
-    # workflows switched off, so this value is an estimate pending the first
-    # real run. Revisit once a run completes.
+    # The first green run (run 33821437107) took 19m21s. 30 minutes leaves margin.
     timeout-minutes: 30
 
     steps:
@@ -40,9 +41,15 @@ jobs:
 
       - name: Restore Nix store cache
         uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
 
+      # --no-update-lock-file makes a missing or stale flake.lock fail the
+      # command by itself, instead of Nix silently regenerating the lock
+      # from floating input refs and only failing later, for an unrelated
+      # reason, if the regenerated lock happens to break evaluation.
       - name: Check flake
-        run: nix flake check
+        run: nix flake check --no-update-lock-file
 
       - name: Build packages
-        run: nix build .#exo .#exo-scheduler-runner .#node-modules
+        run: nix build --no-update-lock-file .#exo .#exo-scheduler-runner .#node-modules
