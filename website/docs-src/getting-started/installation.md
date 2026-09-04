@@ -17,6 +17,13 @@ instructions for anything missing:
 
 You'll also need an **OpenAI API key**.
 
+Instead of installing Node.js, pnpm, and Rust yourself, you can get all
+three, pinned to the exact versions this repository builds against, from
+the repository's Nix flake. See
+[Using the Nix flake](#using-the-nix-flake) below. That path needs
+[Nix](https://nixos.org/download) with flakes enabled, and optionally
+[direnv](https://direnv.net/).
+
 ## Run the setup script
 
 ```bash
@@ -67,3 +74,30 @@ harnesses.
   Hacking on exo itself? Use a debug build: `cargo build -p exo`, then invoke
   it as `./target/debug/exo`.
 :::
+
+## Using the Nix flake
+
+The repository ships a `flake.nix` that pins Node.js, pnpm, and Rust to the
+exact versions this repository builds against. It is a second way to get a
+toolchain, alongside the [Prerequisites](#prerequisites) list and the setup
+script in [Quick Start](https://github.com/exoharness/exo#quick-start).
+It does not change what the setup script does.
+
+```bash
+git clone https://github.com/exoharness/exo
+cd exo
+nix develop
+```
+
+`nix develop` opens a shell with the pinned toolchain on `PATH` and prints
+their versions. Run the
+[Quick Start](https://github.com/exoharness/exo#quick-start) commands
+inside that shell, or prefix any command with `nix develop -c`, for
+example `nix develop -c ./exo.sh`.
+
+With [direnv](https://direnv.net/) installed, run `direnv allow` once in the
+repository root instead. The committed `.envrc` loads the same shell
+automatically on every `cd` into the directory.
+
+See [Development](../development/index.md#using-the-nix-flake) for
+`nix flake check`, the package builds, and the hash bump procedure.

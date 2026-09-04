@@ -69,6 +69,21 @@ _Note that Exo requires git and Docker. The setup script offers to install
 them if missing, and installs pinned node, pnpm, and rust toolchains
 automatically via [mise](https://mise.jdx.dev)._
 
+If you use [Nix](https://nixos.org/download) with flakes enabled, clone the
+repository first, then run the setup script inside the repository's dev
+shell instead of installing mise:
+
+```
+git clone https://github.com/exoharness/exo
+cd exo
+nix develop -c bash setup.sh
+```
+
+The dev shell puts pinned node, pnpm, and rust on `PATH`, so the setup script
+finds them already present and skips the mise install step. See
+[Using the Nix flake](website/docs-src/getting-started/installation.md#using-the-nix-flake)
+for the full prerequisite list.
+
 It'll build Exo (may take a few minutes), then ask for the API key and your name
 and your agent's name, and give you the command to start Exo (./exo.sh).
 
@@ -128,6 +143,11 @@ mounted at `/workspace/exo`, and ExoChat for remote access. Pass
 `--template dev` for a developer variant that sets up IRC and Discord instead
 of ExoChat, or `--template minimal` for a bare REPL with no Docker defaults or
 adapter setup.
+
+If you entered the repository through `nix develop`, run `./exo.sh` as
+`nix develop -c ./exo.sh` instead, so it builds and runs with the pinned
+toolchain from the flake. Every subcommand and flag stays the same, for
+example `nix develop -c ./exo.sh list`.
 
 ## Basic Debugging and Visibility
 
